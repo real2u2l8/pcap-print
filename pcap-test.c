@@ -88,9 +88,6 @@ u_int8_t getIpLength(u_int8_t bits){ //IP Header Length를 구하는 함수
 	u_int8_t ip_length = ((u_int8_t)0x0F & bits) * 4;
     return ip_length;
 }
-u_int8_t getIpIdent(u_int8_t bits){ //ip 헤더 protocol identifier 구하는 함수
-    return ((u_int8_t)0xF0 & bits) >> 4;    
-}
 u_int8_t getTcpLength(u_int8_t bits){ //tcplength구하는 함수
     return ((u_int8_t)0xF0 & bits) >> 4;    
 }
@@ -106,14 +103,15 @@ u_int8_t getDataOffset(const u_char *packet, u_int8_t tcp_hdr_offset){ //tcpOffs
 
 void print_eth_data(const u_char* packet){
 	struct EthHeader* packet_eth = (struct EthHeader* )packet;
-	printf("MAC Destination-\n\t%x:%x:%x:%x:%x:%x\n"
+	printf("[*]Ethernet Header Frame\n");
+	printf("\tMAC Destination - %x:%x:%x:%x:%x:%x\n"
 							, packet_eth->mac_dst[0]
 							, packet_eth->mac_dst[1]
 							, packet_eth->mac_dst[2]
 							, packet_eth->mac_dst[3]
 							, packet_eth->mac_dst[4]
 							, packet_eth->mac_dst[5]);
-	printf("MAC Source-\n\t%x:%x:%x:%x:%x:%x\n"
+	printf("\tMAC Source - %x:%x:%x:%x:%x:%x\n"
 							, packet_eth->mac_src[0]
 							, packet_eth->mac_src[1]
 							, packet_eth->mac_src[2]
@@ -124,42 +122,45 @@ void print_eth_data(const u_char* packet){
 
 void print_ip_data(const u_char* packet){
 	struct IpHeader* packet_ip = (struct IpHeader* )(packet + ETH_OFFSET);
-	
-	printf("IP Source-\n\t%d.%d.%d.%d\n"
+	printf("[*]IP Header Packet\n");
+	printf("\tIP Source - %d.%d.%d.%d\n"
 							, packet_ip->ip_src[0]
 							, packet_ip->ip_src[1]
 							, packet_ip->ip_src[2]
 							, packet_ip->ip_src[3]);
-	printf("IP Destination-\n\t%d.%d.%d.%d\n"
+	printf("\tIP Destination - %d.%d.%d.%d\n"
 							, packet_ip->ip_dst[0]
 							, packet_ip->ip_dst[1]
 							, packet_ip->ip_dst[2]
 							, packet_ip->ip_dst[3]);
-	printf("IP Version-\n\tVersion : v%d\n",getIpVesion(packet_ip->ip_verlen));
-	printf("IP Header length -\n\t%d\n", getIpLength(packet_ip->ip_verlen));
+	printf("\tIP Version - v%d\n",getIpVesion(packet_ip->ip_verlen));
+	printf("\tIP Header length - %d\n", getIpLength(packet_ip->ip_verlen));
 }
 
 void print_tcp_data(const u_char* packet, u_int8_t tcp_hdr_offset){
 	struct TcpHeader* packet_tcp = (struct TcpHeader *)(packet + tcp_hdr_offset);
-	printf("TCP Source Port-\n\t%d\n", ntohs(packet_tcp->tcp_srcpt));
-	printf("TCP Destination Port-\n\t%d\n", ntohs(packet_tcp->tcp_despt));
+	printf("[*]TCP Header Segment\n");
+	printf("\tTCP Source Port - %d\n", ntohs(packet_tcp->tcp_srcpt));
+	printf("\tTCP Destination Port - %d\n", ntohs(packet_tcp->tcp_despt));
 	
 }
 
+/*payload를 출력하는 함수*/
 void print_payload(const u_char* packet, u_int8_t tcp_hdr_offset, u_int16_t data_offset){
 	int offset = ETH_OFFSET + tcp_hdr_offset + data_offset;
 
-	printf("Payload(data)-\n\t");
-	if(data_offset == 40){
-		printf("no data\n\n");
+	printf("[*]Payload(DATA) 10Bytes\n");
+	if(data_offset == 40){ //length가 40바이트인 경우 데이터가 없다고 판단 사실 데이터가 뒤에 없다는 판단을 어떻게 해야할지 모르겠어서 이렇게 잡음
+		printf("\tno data\n\n");
 		return ;
 	}
-	if(packet[offset] == 0x0){
-		printf("no data\n\n");
+	if(packet[offset] == 0x0){ //하나 더 실제 data가 00으로만 있다면? 데이터가 없다고 판단.
+		printf("\tno data\n\n");
 		return ;
 	}else{
-		for(int i = 0; i < 10; i++){
-			printf("%x",packet[offset+i]);
+		printf("\t");
+		for(int i = 0; i < 10; i++){ //상위 10byte만 출력
+			printf("%02x ",packet[offset+i]);
 		}
 	}
 	printf("\n\n");
@@ -176,7 +177,7 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "pcap_open_live(%s) return null - %s\n", param.dev_, errbuf);
 		return -1;
 	}
-
+	int number = 1;
 	while (true) {
 		struct pcap_pkthdr* header;
 		const u_char* packet;
@@ -186,28 +187,31 @@ int main(int argc, char* argv[]) {
 			printf("pcap_next_ex return %d(%s)\n", res, pcap_geterr(pcd));
 			break;
 		}
-
+		printf("[%d]- %u bytes captured\n",number ,header->caplen); //header->caplen은 캡처된 길이가 저장된 멤버
 		u_int8_t tcp_hdr_offset =  getTcpOffset(packet); //tcp헤더 부분위치의 오프셋 
 		u_int8_t data_offset = getDataOffset(packet, tcp_hdr_offset);
-		struct EthHeader* packet_eth = (struct EthHeader* )packet;
-		struct IpHeader* packet_ip = (struct IpHeader* )(packet + ETH_OFFSET);
-		struct TcpHeader* packet_tcp = (struct TcpHeader *)(packet + tcp_hdr_offset);
+		struct EthHeader* packet_eth = (struct EthHeader* )packet; //ip헤더가 있는지 없는지 판단하기 위해서 이더넷 구조체 선언
+		struct IpHeader* packet_ip = (struct IpHeader* )(packet + ETH_OFFSET); //ip헤더내 protocal identifier를 가져오기위한 ip헤더 구조체 선언
 		/*캡쳐된 길이 출력*/
-		printf("%u bytes captured\n", header->caplen); //header->caplen은 캡처된 길이가 저장된 멤버
-		
-		if(!packet_eth->ethtype == 0x08){ //IPv4만 출력
-			printf("This Packet is not IPv4\n\n");
+		if(packet_eth->ethtype != 0x08){ //IPv4만 출력
+			printf("[*]This Protocal is not IPv4\n");
+			printf("[*]Ethernet Type - 0x%02x\n\n", packet_eth->ethtype);
+			number++;
 			continue;
 		}
-		if(!getIpIdent(packet_ip->ip_p) == 0x06){ //IPv4만 출력
-			printf("This Packet is not IPv4\n\n");
+		if(packet_ip->ip_p != 0x6){ //tcp가 포함되면 출력
+			printf("[*]This Protocal is not TCP\n");
+			printf("[*]Protocol Identifier - 0x%02x(%d)\n\n", packet_ip->ip_p, packet_ip->ip_p);
+			number++;
 			continue;
 		}
+		printf("[*]IPv4, TCP Protocol Captured\n");
 		
 		print_eth_data(packet);
 		print_ip_data(packet);
 		print_tcp_data(packet, tcp_hdr_offset);
 		print_payload(packet, tcp_hdr_offset, data_offset);
+		number++;
 	}
 
 	pcap_close(pcd);
